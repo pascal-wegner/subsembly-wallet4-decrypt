@@ -1,0 +1,11 @@
+# Wallet files (never commit real wallet data)
+*.wlt
+*.wallet
+
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
