@@ -3,7 +3,9 @@
 Subsembly Wallet4 (.wlt) Decryption Tool
 Reverse-engineered from Subsembly.SubFS.dll and Subsembly.Crypto.dll
 
-Usage: python3 decrypt_wallet.py <file.wlt> <password>
+Usage: python3 decrypt_wallet.py <file.wlt> [password]
+       python3 decrypt_wallet.py <file.wlt> --password-file secret.txt
+       echo "mypass" | python3 decrypt_wallet.py <file.wlt>
 
 Encryption: AES-256-ECB with custom key derivation
   1. RIPEMD-160(static_constant + password_utf16le) → 20-byte hash
@@ -12,6 +14,8 @@ Encryption: AES-256-ECB with custom key derivation
   4. CipherKey decrypts data pages
 """
 
+import argparse
+import getpass
 import struct
 import sys
 import re
@@ -164,7 +168,7 @@ def decrypt_wallet(filepath, password):
     for key, dec in all_decrypted.items():
         try:
             text = dec.decode('utf-8', errors='replace')
-        except:
+        except (UnicodeDecodeError, ValueError):
             continue
         if '\x1f' in text and '\x1e' in text:
             bom_pos = text.find('\ufeff')
@@ -200,7 +204,7 @@ def decrypt_wallet(filepath, password):
                     if null_pos > 0:
                         cont = cont[:null_pos]
                     folder_tree_text += cont
-                except:
+                except (UnicodeDecodeError, ValueError):
                     pass
 
         entries = folder_tree_text.split('\x1e')
@@ -299,19 +303,33 @@ def decrypt_wallet(filepath, password):
 
 
 if __name__ == '__main__':
-    if len(sys.argv) < 3:
-        print(f"Usage: {sys.argv[0]} <file.wlt> <password>")
-        print()
-        print("Decrypts Subsembly Wallet4 password manager files.")
-        print("Requires: pip install pycryptodome")
-        sys.exit(1)
+    parser = argparse.ArgumentParser(
+        description="Decrypt Subsembly Wallet4 password manager files. Requires: pip install pycryptodome"
+    )
+    parser.add_argument("file", help="Path to the .wlt wallet file")
+    parser.add_argument("password", nargs="?", default=None,
+                        help="Decryption password (insecure — prefer --password-file or omit to be prompted)")
+    parser.add_argument("--password-file", metavar="FILE",
+                        help="Read password from FILE (first line, trailing newline stripped)")
+    args = parser.parse_args()
 
-    filepath = sys.argv[1]
-    password = sys.argv[2]
+    filepath = args.file
 
     if not os.path.exists(filepath):
         print(f"ERROR: File not found: {filepath}")
         sys.exit(1)
+
+    # Determine password: --password-file > stdin pipe > positional arg > interactive prompt
+    if args.password_file:
+        with open(args.password_file, "r") as pf:
+            password = pf.readline().rstrip("\n")
+    elif not sys.stdin.isatty():
+        # Password piped via stdin, e.g. echo "pw" | python decrypt_wallet.py file.wlt
+        password = sys.stdin.readline().rstrip("\n")
+    elif args.password is not None:
+        password = args.password
+    else:
+        password = getpass.getpass("Wallet password: ")
 
     success = decrypt_wallet(filepath, password)
     sys.exit(0 if success else 1)
